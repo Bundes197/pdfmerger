@@ -1,0 +1,13 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pdfmerger"
+description = "A command line tool to merge pdfs into one file."
+version = "0.1.0"
+requires-python = ">= 3.8"
+readme = "README.md"
+
+[project.scripts]
+pdfmerger = "pdfmerger.cli:main"
