@@ -1,13 +1,16 @@
 from pypdf import PdfWriter
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
+import logging
+import time
+import sys
 
 def main():
     parser = ArgumentParser(prog="pdfmerger",
-                                    description="A command line tool to merge pdfs into one file.",
-                                    suggest_on_error=True)
+                            description="A command line tool to merge pdfs into one file.",
+                            suggest_on_error=True)
     
-    parser.add_argument('files', nargs='+', help='Input files to merge')
+    parser.add_argument('files', nargs='*', help='Input files to merge')
     parser.add_argument('-o', default='output.pdf', help='Name of merged output file')
     parser.add_argument('-f', '--force', action='store_true', help='Overwrite output file if it already exists')
 
@@ -25,36 +28,76 @@ def main():
     parser.add_argument('-v', '--version', action='version', version='%(prog)s 0.1.0', help='Print version of pdfmerger')
     parser.add_argument('--verbose', action='store_true', help='Provides a verbose description')
 
-    parser
-
     arguments: Namespace = parser.parse_args()
+
+    if arguments.log:
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        log_name = f"log-{timestr}.log"
+
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+
+        log_path = log_dir / f"log-{timestr}.log"
+
+        log_handlers = [logging.FileHandler(log_path)]
+
+        if arguments.verbose:
+            log_handlers.append(logging.StreamHandler(sys.stdout))
+
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+            handlers=log_handlers
+        )
+
+        logging.info("Log file initialization successful.")
+    else:
+        if arguments.verbose:
+            logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(levelname)s: %(message)s")
+        else:
+            logging.basicConfig(level=logging.WARNING, stream=sys.stdout, format="%(levelname)s: %(message)s")
     
     if not arguments.files and not arguments.d:
-        parser.error("You must provide either input files or a search directory (-d).")
+        msg = "You must provide either input files or a search directory (-d)."
+        logging.critical(msg)
+        sys.exit(f"pdfmerger: {msg}")
 
-    if arguments.filenfilesame and len(arguments.filename) < 2:
-        parser.error("You must provide at least 2 input files to merge.")
+    if arguments.files and len(arguments.files) < 2 and not arguments.d:
+        msg = "You must provide at least 2 input files to merge."
+        logging.critical(msg)
+        sys.exit(f"pdfmerger: {msg}")
         
     if (arguments.r or arguments.S or arguments.R) and not arguments.d:
-        parser.error("Arguments -r, -S, and -R require a search directory (-d).")
+        msg = "Arguments -r, -S, and -R require a search directory (-d)."
+        logging.critical(msg)
+        sys.exit(f"pdfmerger: {msg}")
+
 
     if arguments.files:
         for file in arguments.files:
             path = Path(file)
             if not path.exists():
-                parser.error(f"Input file '{file}' does not exist.")
+                msg = f"Input file '{file}' does not exist."
+                logging.critical(msg)
+                sys.exit(f"pdfmerger: {msg}")
             if not path.is_file():
-                parser.error(f"'{file}' is not a valid file.")
+                msg = f"'{file}' is not a valid file."
+                logging.critical(msg)
+                sys.exit(f"pdfmerger: {msg}")
             if path.suffix.lower() != '.pdf':
-                parser.error(f"Input file '{file}' must be a PDF.")
+                msg = f"Input file '{file}' must be a PDF."
+                logging.critical(msg)
+                sys.exit(f"pdfmerger: {msg}")
+
+    logging.info("Arguments are correct.")
     
     output_path = Path(arguments.o)
     if output_path.suffix.lower() != '.pdf':
+        logging.info("Output file name does not end with .pdf, adding pdf extension")
         output_path = output_path.with_suffix('.pdf')
         arguments.o = str(output_path)
 
-    print(arguments)
-
+    logging.info("Output file name is valid.")
 
 if __name__ == "__main__":
     main()
