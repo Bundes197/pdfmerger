@@ -6,6 +6,7 @@ import time
 import sys
 import os
 
+# For preserving order of the arguments
 class InputAction(Action):
     def __call__(self,
                 parser: ArgumentParser,
@@ -80,6 +81,7 @@ def check_arguments(arguments: Namespace) -> None:
 
         logging.info("Log file initialization successful.")
     else:
+        # If verbose, print everything into the terminal, if not, print only warnings and critical errors
         if arguments.verbose:
             logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(levelname)s: %(message)s")
         else:
@@ -149,6 +151,8 @@ def get_all_files(arguments: Namespace) -> list[str]:
         logging.info("get_all_files(): Input queue for files was not created, returning empty list.")
         return all_files
     
+    input_type: str
+    path: str
     for input_type, path in arguments.input_queue:
         if input_type == 'file':
             logging.info("get_all_files(): Adding %s to all files.", path)
@@ -185,7 +189,6 @@ def main() -> None:
     check_arguments(arguments)
 
     all_files: list[str] = get_all_files(arguments)
-
     check_file_count(all_files)
 
 
