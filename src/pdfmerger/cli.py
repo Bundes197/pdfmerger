@@ -19,6 +19,7 @@ class InputAction(Action):
         if option_string == '-d' or option_string == '--dir':
             namespace.input_queue.append(('dir', values))
             namespace.dir = values
+            return
         elif option_string is None:
             if isinstance(values, list):
                 for file in values:
@@ -43,14 +44,18 @@ def create_parser() -> ArgumentParser:
     parser.add_argument('-f', '--force', action='store_true', help='Overwrite output file if it already exists')
     parser.add_argument('-P', '--password', help='Encrypt the output PDF with a password')
 
-    parser.add_argument('-d', '--dir', action=InputAction, help='Search directory for pdf files')
+    parser.add_argument('-d', '--dir', action=InputAction, help='Search directory for PDF files')
     parser.add_argument('-r', '--recursive', action='store_true', help='Search directory recursively (requires -d)')
 
     group = parser.add_mutually_exclusive_group()
-    group.add_argument('-S', '--sort', action='store_true', help='Sort searched pdf files (requires -d)')
-    group.add_argument('-R', '--reverse', action='store_true', help='Reverse sort searched pdf files (requires -d)')
+    group.add_argument('-S', '--sort', action='store_true', help='Sort searched PDF files (requires -d)')
+    group.add_argument('-R', '--reverse', action='store_true', help='Reverse sort searched PDF files (requires -d)')
 
     parser.add_argument('-p', '--pages', nargs='+', help='Specify page ranges to extract (e.g., 1-3 5 7-end). Applies to all inputs.')
+    parser.add_argument('-c', '--compress', action='store_true', help='Compress and optimize the size of the output PDF')
+    parser.add_argument('--add-bookmarks', action='store_true', help='Add bookmarks using input filenames for easier navigation')
+    parser.add_argument('--clear-metadata', action='store_true', help='Remove all metadata from the output PDF for anonymization')
+    
 
     parser.add_argument('-l', '--log', action='store_true', help='Create output log')
     parser.add_argument('-v', '--version', action='version', version='%(prog)s 0.1.0', help='Print version of pdfmerger')
@@ -135,12 +140,16 @@ def check_arguments(arguments: Namespace) -> None:
 def search_directory(path: Path, recursive: bool) -> list[str]:
     found_files: list[str] = []
 
+    search_result: list[Path]
     if recursive:
         logging.info("search_directory(): Searching %s directory recursively.", path)
-        pass
+        search_result = list(path.rglob("*.pdf"))
     else:
         logging.info("search_directory(): Searching %s directory.", path)
-        pass
+        search_result = list(path.glob("*.pdf"))
+
+    for file in search_result:
+        found_files.append(str(file))
 
     return found_files
 
@@ -181,6 +190,22 @@ def check_file_count(file_list: list[str]) -> None:
         logging.critical("check_file_count(): %s", msg)
         sys.exit(f"pdfmerger: {msg}")
 
+def merge_pdfs(merger: PdfWriter, arguments: Namespace, all_files: list[str]) -> None:
+    logging.info("merge_pdfs(): merging all input PDF files.")
+    for pdf in all_files:
+        start_page = len(merger.pages)
+
+        if arguments.pages:
+            # Extracting pages
+            pass
+        else:
+            merger.append(pdf)
+
+        if arguments.add_bookmarks and len(merger.pages) != start_page:
+            bookmark_title = Path(pdf).stem
+            merger.add_outline_item(bookmark_title, page_number=start_page)
+            logging.info("merge_pdfs(): added bookmark %s at page %d.", bookmark_title, start_page)
+
 def main() -> None:
     parser = create_parser()
 
@@ -191,6 +216,25 @@ def main() -> None:
     all_files: list[str] = get_all_files(arguments)
     check_file_count(all_files)
 
+    merger = PdfWriter()
+
+    merge_pdfs(merger, arguments, all_files)
+
+    if arguments.password:
+        logging.info("Encrypting output PDF file with a password.")
+        merger.encrypt(arguments.password, algorithm="AES-256")
+
+    if arguments.clear_metadata:
+        logging.info("Clearing output PDF file metadata.")
+        merger.add_metadata({})
+
+    if arguments.compress:
+        logging.info("Compressing output PDF file.")
+        merger.compress_identical_objects()
+
+    merger.write(arguments.output)
+
+    merger.close()
 
 if __name__ == "__main__":
     main()
