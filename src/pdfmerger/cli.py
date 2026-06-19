@@ -1,10 +1,10 @@
-from pypdf import PdfWriter
+from pypdf import PdfWriter, PdfReader
 from argparse import ArgumentParser, Namespace, Action
 from pathlib import Path
 import logging
 import time
 import sys
-import os
+import re
 
 # For preserving order of the arguments
 class InputAction(Action):
@@ -66,86 +66,107 @@ def create_parser() -> ArgumentParser:
     return parser
 
 def check_arguments(arguments: Namespace) -> None:
+    file_formatter: logging.Formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(funcName)s(): %(message)s")
+    console_formatter: logging.Formatter = logging.Formatter("pdfmerger: %(levelname)s: %(message)s")
+    handlers: list[logging.Handler] = []
+
     if arguments.log:
-        timestr = time.strftime("%Y%m%d-%H%M%S")
-        log_dir = Path("logs")
+        timestr: str = time.strftime("%Y%m%d-%H%M%S")
+        log_dir: Path = Path("logs")
         log_dir.mkdir(exist_ok=True)
+        log_path: Path = log_dir / f"log-{timestr}.log"
 
-        log_path = log_dir / f"log-{timestr}.log"
+        file_handler: logging.FileHandler = logging.FileHandler(log_path)
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(file_formatter)
+        handlers.append(file_handler)
 
-        log_handlers = [logging.FileHandler(log_path)]
-
-        if arguments.verbose:
-            log_handlers.append(logging.StreamHandler(sys.stdout))
-
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - %(levelname)s - %(message)s",
-            handlers=log_handlers
-        )
-
-        logging.info("Log file initialization successful.")
+    console_handler: logging.StreamHandler = logging.StreamHandler(sys.stdout)
+    if arguments.verbose:
+        console_handler.setLevel(logging.INFO)
     else:
-        # If verbose, print everything into the terminal, if not, print only warnings and critical errors
-        if arguments.verbose:
-            logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(levelname)s: %(message)s")
-        else:
-            logging.basicConfig(level=logging.WARNING, stream=sys.stdout, format="%(levelname)s: %(message)s")
+        console_handler.setLevel(logging.WARNING)
+        
+    console_handler.setFormatter(console_formatter)
+    handlers.append(console_handler)
+
+    root_level: int
+    if arguments.log or arguments.verbose:
+        root_level = logging.INFO
+    else:
+        root_level = logging.WARNING
+
+    logging.basicConfig(level=root_level, handlers=handlers)
+
+    if arguments.log:
+        logging.info("Log file initialization successful.")
+
+    if getattr(arguments, 'pages', None):
+        # Pattern match page ranges with a regex
+        pattern = re.compile(r'^(\d+|end)?-?(\d+|end)?$')
+
+        item: str
+        for item in arguments.pages:
+            item_clean: str = item.lower().strip()
+
+            if not item_clean or item_clean == '-':
+                logging.critical("Invalid page range format: '%s'", item)
+                sys.exit(1)
+
+            if not pattern.match(item_clean):
+                logging.critical("Invalid page range syntax: '%s'. Use numbers, ranges (e.g., 1-3) or 'end'.", item)
+                sys.exit(1)
+
+        logging.info("Page ranges syntax is valid.")
     
     if not getattr(arguments, 'files', None) and not getattr(arguments, 'dir', None):
-        msg: str = "You must provide either input files or a search directory (-d)."
-        logging.critical("check_arguments(): %s", msg)
-        sys.exit(f"pdfmerger: {msg}")
+        logging.critical("You must provide either input files or a search directory (-d).")
+        sys.exit(1)
         
     if (arguments.recursive or arguments.sort or arguments.reverse) and not getattr(arguments, 'dir', None):
-        msg: str = "Arguments -r, -S, and -R require a search directory (-d)."
-        logging.critical("check_arguments(): %s", msg)
-        sys.exit(f"pdfmerger: {msg}")
+        logging.critical("Arguments -r, -S, and -R require a search directory (-d).")
+        sys.exit(1)
 
     if getattr(arguments, 'files', None):
         for file in getattr(arguments, 'files', []):
-            path = Path(file)
+            path: Path = Path(file)
             if not path.exists():
-                msg: str = f"Input file '{file}' does not exist."
-                logging.critical("check_arguments(): %s", msg)
-                sys.exit(f"pdfmerger: {msg}")
+                logging.critical("Input file '%s' does not exist.", file)
+                sys.exit(1)
             if not path.is_file():
-                msg: str = f"'{file}' is not a valid file."
-                logging.critical("check_arguments(): %s", msg)
-                sys.exit(f"pdfmerger: {msg}")
+                logging.critical("'%s' is not a valid file.", file)
+                sys.exit(1)
             if path.suffix.lower() != '.pdf':
-                msg: str = f"Input file '{file}' must be a PDF."
-                logging.critical("check_arguments(): %s", msg)
-                sys.exit(f"pdfmerger: {msg}")
+                logging.critical("Input file '%s' must be a PDF.", file)
+                sys.exit(1)
 
-    logging.info("check_arguments(): Input files are valid.")
+    logging.info("Input files are valid.")
     
-    output_path = Path(arguments.output)
+    output_path: Path = Path(arguments.output)
     if output_path.suffix.lower() != '.pdf':
-        logging.info("check_arguments(): Output file name does not end with .pdf, adding pdf extension.")
+        logging.info("Output file name does not end with .pdf, adding pdf extension.")
         output_path = output_path.with_suffix('.pdf')
         arguments.output = str(output_path)
 
-    logging.info("check_arguments(): Output file name is valid.")
+    logging.info("Output file name is valid.")
 
-    path = Path(arguments.output)
-    if path.exists() and path.is_file() and not arguments.force:
-        msg: str = f"File {path.stem} already exists, cannot overwrite file (use --force to force overwrite)."
-        logging.critical("check_arguments(): %s", msg)
-        sys.exit(f"pdfmerger: {msg}")
+    result_path: Path = Path(arguments.output)
+    if result_path.exists() and result_path.is_file() and not arguments.force:
+        logging.warning("File %s already exists, cannot overwrite file (use --force to force overwrite).", result_path.stem)
+        sys.exit(1)
     
-    logging.info("check_arguments(): Output file can be created.")
-    logging.info("check_arguments(): Arguments are correct.")
+    logging.info("Output file can be created.")
+    logging.info("Arguments are correct.")
 
 def search_directory(path: Path, recursive: bool) -> list[str]:
     found_files: list[str] = []
 
     search_result: list[Path]
     if recursive:
-        logging.info("search_directory(): Searching %s directory recursively.", path)
+        logging.info("Searching %s directory recursively.", path)
         search_result = list(path.rglob("*.pdf"))
     else:
-        logging.info("search_directory(): Searching %s directory.", path)
+        logging.info("Searching %s directory.", path)
         search_result = list(path.glob("*.pdf"))
 
     for file in search_result:
@@ -157,57 +178,118 @@ def get_all_files(arguments: Namespace) -> list[str]:
     all_files: list[str] = []
 
     if not hasattr(arguments, 'input_queue'):
-        logging.info("get_all_files(): Input queue for files was not created, returning empty list.")
+        logging.info("Input queue for files was not created, returning empty list.")
         return all_files
     
     input_type: str
     path: str
     for input_type, path in arguments.input_queue:
         if input_type == 'file':
-            logging.info("get_all_files(): Adding %s to all files.", path)
+            logging.info("Adding %s to all files.", path)
             all_files.append(path)
         elif input_type == 'dir':
             dir_files: list[str] = []
             dir_files.extend(search_directory(Path(path), arguments.recursive))
 
-            logging.info("get_all_files(): Found %d files in directory %s.", len(dir_files), path)
+            logging.info("Found %d files in directory %s.", len(dir_files), path)
             
             if arguments.sort:
-                logging.info("get_all_files(): Sorting files from %s directory.", path)
+                logging.info("Sorting files from %s directory.", path)
                 dir_files.sort()
             elif arguments.reverse:
-                logging.info("get_all_files(): Reverse sorting files from %s directory.", path)
+                logging.info("Reverse sorting files from %s directory.", path)
                 dir_files.sort(reverse=True)
 
-            logging.info("get_all_files(): Adding files from directory %s to all files.", path)
+            logging.info("Adding files from directory %s to all files.", path)
             all_files.extend(dir_files)
 
     return all_files
 
 def check_file_count(file_list: list[str]) -> None:
-    if (len(file_list) < 2):
-        msg: str = "You must provide at least 2 input files to merge."
-        logging.critical("check_file_count(): %s", msg)
-        sys.exit(f"pdfmerger: {msg}")
+    if (len(file_list) < 1):
+        logging.critical("You must provide at least 1 input file.")
+        sys.exit(1)
+
+def parse_page_ranges(pages_spec: list[str], total_pages: int) -> list[int]:
+    indices: list[int] = []
+
+    for item in pages_spec:
+        item: str = item.lower().strip()
+
+        if '-' in item:
+            start_str: str
+            end_str: str
+            start_str, end_str = item.split('-', 1)
+            start_str = start_str.strip()
+            end_str = end_str.strip()
+
+            start: int
+            if not start_str:
+                start = 1
+            elif start_str == 'end':
+                start = total_pages
+            else:
+                start = int(start_str)
+
+            end: int
+            if not end_str:
+                end = total_pages
+            elif end_str == 'end':
+                end = total_pages
+            else:
+                end = int(end_str)
+
+            if start <= end:
+                indices.extend(range(start - 1, end))
+                
+        else:
+            if item == 'end':
+                indices.append(total_pages - 1)
+            else:
+                indices.append(int(item) - 1)
+
+    result: list[int] = []
+    i: int
+    for i in indices:
+        if 0 <= i < total_pages:
+            result.append(i)
+
+    logging.info("Parsed user input into %d page indices.", len(result))
+    return result
 
 def merge_pdfs(merger: PdfWriter, arguments: Namespace, all_files: list[str]) -> None:
-    logging.info("merge_pdfs(): merging all input PDF files.")
+    logging.info("Merging all input PDF files.")
     for pdf in all_files:
-        start_page = len(merger.pages)
+        start_page: int = len(merger.pages)
 
-        if arguments.pages:
-            # Extracting pages
-            pass
-        else:
-            merger.append(pdf)
+        try:
+            if arguments.pages:
+                reader: PdfReader = PdfReader(pdf)
+                total_pages: int = len(reader.pages)
+                page_indices: list[int] = parse_page_ranges(arguments.pages, total_pages)
+                
+                idx: int
+                for idx in page_indices:
+                    merger.add_page(reader.pages[idx])
+
+                logging.info("Extracted %d pages from %s", len(page_indices), pdf)
+            else:
+                merger.append(pdf)
+                logging.info("Merged %s", pdf)
+        except Exception as e:
+            if "encrypt" in str(e).lower() or "password" in str(e).lower():
+                logging.critical("Input file '%s' is encrypted and cannot be read.", pdf)
+            else:
+                logging.critical("Error processing file %s: %s", pdf, e)
+            sys.exit(1)
 
         if arguments.add_bookmarks and len(merger.pages) != start_page:
-            bookmark_title = Path(pdf).stem
+            bookmark_title: str = Path(pdf).stem
             merger.add_outline_item(bookmark_title, page_number=start_page)
-            logging.info("merge_pdfs(): added bookmark %s at page %d.", bookmark_title, start_page)
+            logging.info("Added bookmark %s at page %d.", bookmark_title, start_page)
 
 def main() -> None:
-    parser = create_parser()
+    parser: ArgumentParser = create_parser()
 
     arguments: Namespace = parser.parse_args()
 
@@ -216,7 +298,7 @@ def main() -> None:
     all_files: list[str] = get_all_files(arguments)
     check_file_count(all_files)
 
-    merger = PdfWriter()
+    merger: PdfWriter = PdfWriter()
 
     merge_pdfs(merger, arguments, all_files)
 
@@ -233,7 +315,8 @@ def main() -> None:
         merger.compress_identical_objects()
 
     merger.write(arguments.output)
-
+    logging.info("Successfully created merged PDF at '%s'.", arguments.output)
+    
     merger.close()
 
 if __name__ == "__main__":
