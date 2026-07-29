@@ -30,7 +30,7 @@ pip3 install .
 ```
 
 ### Note for macOS users:
-If macOS blocks the binary with a security warning, remove the quarantine attribute via Terminal:
+If macOS blocks the binary with a security warning, remove the quarantine attribute via Terminal in the directory where the executable is located:
 ```bash
 xattr -d com.apple.quarantine pdfmerger
 ```
