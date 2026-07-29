@@ -29,6 +29,12 @@ cd pdfmerger
 pip3 install .
 ```
 
+### Note for macOS users:
+If macOS blocks the binary with a security warning, remove the quarantine attribute via Terminal:
+```bash
+xattr -d com.apple.quarantine pdfmerger
+```
+
 ---
 
 ## Usage
