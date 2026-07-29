@@ -51,7 +51,7 @@ def create_parser() -> ArgumentParser:
     group.add_argument('-S', '--sort', action='store_true', help='Sort searched PDF files (requires -d)')
     group.add_argument('-R', '--reverse', action='store_true', help='Reverse sort searched PDF files (requires -d)')
 
-    parser.add_argument('-p', '--pages', nargs='+', help='Specify page ranges to extract (e.g., 1-3 5 7-end). Applies to all inputs.')
+    parser.add_argument('-p', '--pages', type=str, help='Specify page ranges to extract (e.g., 1-3,5,7-end). Applies to all inputs.')
     parser.add_argument('-c', '--compress', action='store_true', help='Compress and optimize the size of the output PDF')
     parser.add_argument('--add-bookmarks', action='store_true', help='Add bookmarks using input filenames for easier navigation')
     parser.add_argument('--clear-metadata', action='store_true', help='Remove all metadata from the output PDF for anonymization')
@@ -102,11 +102,15 @@ def check_arguments(arguments: Namespace) -> None:
         logging.info("Log file initialization successful.")
 
     if getattr(arguments, 'pages', None):
-        # Pattern match page ranges with a regex
         pattern = re.compile(r'^(\d+|end)?-?(\d+|end)?$')
 
-        item: str
-        for item in arguments.pages:
+        raw_pages = arguments.pages
+        if isinstance(raw_pages, str):
+            page_items = [p.strip() for p in raw_pages.replace(",", " ").split() if p.strip()]
+        else:
+            page_items = raw_pages
+
+        for item in page_items:
             item_clean: str = item.lower().strip()
 
             if not item_clean or item_clean == '-':
@@ -210,10 +214,15 @@ def check_file_count(file_list: list[str]) -> None:
         logging.critical("You must provide at least 1 input file.")
         sys.exit(1)
 
-def parse_page_ranges(pages_spec: list[str], total_pages: int) -> list[int]:
+def parse_page_ranges(pages_spec: str | list[str], total_pages: int) -> list[int]:
     indices: list[int] = []
 
-    for item in pages_spec:
+    if isinstance(pages_spec, str):
+        items = [p.strip() for p in pages_spec.replace(",", " ").split() if p.strip()]
+    else:
+        items = pages_spec
+
+    for item in items:
         item: str = item.lower().strip()
 
         if '-' in item:
