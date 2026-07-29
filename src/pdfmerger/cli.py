@@ -37,8 +37,7 @@ class InputAction(Action):
 
 def create_parser() -> ArgumentParser:
     parser = ArgumentParser(prog="pdfmerger",
-                            description="A command line tool to merge pdfs into one file.",
-                            suggest_on_error=True)
+                            description="A command line tool to merge pdfs into one file.")
     
     parser.add_argument('-o', '--output', default='output.pdf', help='Name of merged output file')
     parser.add_argument('-f', '--force', action='store_true', help='Overwrite output file if it already exists')
