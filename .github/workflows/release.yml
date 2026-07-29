@@ -1,0 +1,107 @@
+name: Create package
+run-name: Release ${{ github.ref_name }} by @${{ github.actor }}
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+    test:
+        name: Run Pytest
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-python@v5
+            with:
+              python-version: '3.12'
+          - run: |
+              python -m pip install --upgrade pip
+              pip install pypdf pytest
+              pytest
+    build:
+        name: Build on ${{ matrix.os }}
+        needs: test
+        runs-on: ${{ matrix.os }}
+        strategy:
+            matrix:
+                os: [windows-latest, macos-latest, ubuntu-latest]
+                include:
+                - os: windows-latest
+                  binary_name: pdfmerger.exe
+                  archive_name: pdfmerger-windows.zip
+                - os: macos-latest
+                  binary_name: pdfmerger
+                  archive_name: pdfmerger-mac.zip
+                - os: ubuntu-latest
+                  binary_name: pdfmerger
+                  archive_name: pdfmerger-linux.zip
+        
+        steps:
+        - name: Checkout code
+          uses: actions/checkout@v4
+          with:
+            fetch-depth: 0
+        
+        - name: Verify branch is main
+          shell: bash
+          run: |
+            if ! git branch -r --contains ${{ github.sha }} | grep -q "origin/main"; then
+              echo "[ERROR] This tag wasn't created on branch 'main'! Cancelling build."
+              exit 1
+            fi
+            echo "[OK] Tag is on branch 'main'. Continue build."
+
+        - name: Set up Python
+          uses: actions/setup-python@v5
+          with:
+            python-version: '3.12'
+
+        - name: Install dependencies
+          run: |
+            python -m pip install --upgrade pip
+            pip install pypdf pyinstaller
+
+        - name: Run PyInstaller
+          run: |
+            pyinstaller --onefile --paths src --name pdfmerger src/pdfmerger/cli.py
+        
+        - name: Create ZIP archive (Windows)
+          if: matrix.os == 'windows-latest'
+          run: Compress-Archive -Path dist/${{ matrix.binary_name }} -DestinationPath dist/${{ matrix.archive_name }}
+
+        - name: Create ZIP archive (Linux / macOS)
+          if: matrix.os != 'windows-latest'
+          run: |
+            cd dist
+            zip ${{ matrix.archive_name }} ${{ matrix.binary_name }}
+
+        - name: Upload Artifact
+          uses: actions/upload-artifact@v4
+          with:
+            name: assets-${{ matrix.os }}
+            path: dist/${{ matrix.archive_name }}
+
+    release:
+      name: Create GitHub Release
+      needs: build
+      runs-on: ubuntu-latest
+      steps:
+        - name: Download all artifacts
+          uses: actions/download-artifact@v4
+          with:
+            pattern: assets-*
+            merge-multiple: true
+
+        - name: Create Release
+          uses: softprops/action-gh-release@v2
+          with:
+            files: |
+              pdfmerger-windows.zip
+              pdfmerger-mac.zip
+              pdfmerger-linux.zip
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
